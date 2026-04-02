@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Chunk {
+  id         String   @id
+  documentId String
+  content    String
+  position   Int
+  metadata   String?
+  createdAt  DateTime @default(now())
+  Document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+model Conversation {
+  id              String        @id
+  userId          String
+  knowledgeBaseId String
+  title           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime
+  KnowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  User            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Message         Message[]
+}
+
+model Document {
+  id                  String        @id
+  knowledgeBaseId     String
+  fileName            String
+  fileFormat          String
+  fileSize            Int
+  filePath            String
+  chunkStrategy       String        @default("RECURSIVE")
+  chunkOverlapPercent Int           @default(10)
+  chunkSize           Int?
+  status              String        @default("UPLOADING")
+  errorMessage        String?
+  chunkCount          Int           @default(0)
+  uploadedAt          DateTime      @default(now())
+  processedAt         DateTime?
+  Chunk               Chunk[]
+  KnowledgeBase       KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+}
+
+model EmbeddingModel {
+  id            String          @id
+  name          String          @unique
+  provider      String
+  modelId       String
+  dimensions    Int
+  isDefault     Boolean         @default(false)
+  KnowledgeBase KnowledgeBase[]
+}
+
+model KnowledgeBase {
+  id                      String                    @id
+  name                    String
+  description             String?
+  embeddingModelId        String
+  chromaCollectionName    String                    @unique
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime
+  Conversation            Conversation[]
+  Document                Document[]
+  EmbeddingModel          EmbeddingModel            @relation(fields: [embeddingModelId], references: [id])
+  UserKnowledgeBaseAccess UserKnowledgeBaseAccess[]
+}
+
+model LLMProvider {
+  id         String  @id
+  name       String
+  apiBaseUrl String
+  apiKey     String
+  modelId    String
+  isActive   Boolean @default(false)
+}
+
+model Message {
+  id             String       @id
+  conversationId String
+  role           String
+  content        String
+  originalQuery  String?
+  rewrittenQuery String?
+  sources        String?
+  createdAt      DateTime     @default(now())
+  Conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id                      String                    @id
+  username                String                    @unique
+  passwordHash            String
+  role                    String                    @default("QA_USER")
+  status                  String                    @default("ACTIVE")
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime
+  Conversation            Conversation[]
+  UserKnowledgeBaseAccess UserKnowledgeBaseAccess[]
+}
+
+model UserKnowledgeBaseAccess {
+  id              String        @id
+  userId          String
+  knowledgeBaseId String
+  createdAt       DateTime      @default(now())
+  KnowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  User            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, knowledgeBaseId])
+}
