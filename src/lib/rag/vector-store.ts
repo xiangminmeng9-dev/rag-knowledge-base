@@ -1,25 +1,16 @@
-import type { Embeddings } from "@langchain/core/embeddings";
+import { prisma } from "@/lib/db/prisma";
 
 /**
- * In-memory vector store that replaces ChromaDB.
- * Each "collection" is stored as an array of documents with their embeddings.
- * Data persists for the lifetime of the Node.js process but is lost on restart.
+ * PostgreSQL-backed vector store using Prisma.
+ * Stores embeddings as JSON-encoded arrays and computes cosine similarity in JS.
+ * Persists across deploys — suitable for Vercel/serverless.
  */
 
-interface VectorDocument {
-  id: string;
-  content: string;
-  embedding: number[];
-  metadata: Record<string, unknown>;
+interface VectorSearchResult {
+  ids: string[][];
+  documents: (string | null)[][];
+  distances: number[][];
 }
-
-interface InMemoryCollection {
-  name: string;
-  documents: Map<string, VectorDocument>;
-}
-
-// Global store: collectionName -> collection
-const collections = new Map<string, InMemoryCollection>();
 
 /** Cosine similarity between two vectors */
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -36,33 +27,30 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return denom === 0 ? 0 : dot / denom;
 }
 
-export async function getOrCreateCollection(name: string): Promise<InMemoryCollection> {
-  let col = collections.get(name);
-  if (!col) {
-    col = { name, documents: new Map() };
-    collections.set(name, col);
-  }
-  return col;
+/** Collection handle (just wraps a name for API compatibility) */
+export interface VectorCollection {
+  name: string;
 }
 
-export async function getCollection(name: string): Promise<InMemoryCollection> {
-  const col = collections.get(name);
-  if (!col) {
-    // Auto-create if missing (mirrors Chroma behavior for dev)
-    return getOrCreateCollection(name);
-  }
-  return col;
+export async function getOrCreateCollection(name: string): Promise<VectorCollection> {
+  return { name };
+}
+
+export async function getCollection(name: string): Promise<VectorCollection> {
+  return { name };
 }
 
 export async function deleteCollection(name: string): Promise<void> {
-  collections.delete(name);
+  await prisma.vectorEmbedding.deleteMany({
+    where: { collectionName: name },
+  });
 }
 
 /**
  * Add documents with embeddings to a collection.
  */
 export async function addToCollection(
-  collection: InMemoryCollection,
+  collection: VectorCollection,
   params: {
     ids: string[];
     embeddings: number[][];
@@ -70,13 +58,32 @@ export async function addToCollection(
     metadatas: Record<string, unknown>[];
   }
 ): Promise<void> {
-  for (let i = 0; i < params.ids.length; i++) {
-    collection.documents.set(params.ids[i], {
-      id: params.ids[i],
-      content: params.documents[i],
-      embedding: params.embeddings[i],
-      metadata: params.metadatas[i],
-    });
+  const data = params.ids.map((id, i) => ({
+    id,
+    collectionName: collection.name,
+    chunkId: id,
+    content: params.documents[i],
+    embedding: JSON.stringify(params.embeddings[i]),
+    metadata: JSON.stringify(params.metadatas[i]),
+  }));
+
+  // Upsert in batches
+  const batchSize = 50;
+  for (let i = 0; i < data.length; i += batchSize) {
+    const batch = data.slice(i, i + batchSize);
+    await Promise.all(
+      batch.map((item) =>
+        prisma.vectorEmbedding.upsert({
+          where: { id: item.id },
+          update: {
+            content: item.content,
+            embedding: item.embedding,
+            metadata: item.metadata,
+          },
+          create: item,
+        })
+      )
+    );
   }
 }
 
@@ -84,36 +91,39 @@ export async function addToCollection(
  * Query a collection using embeddings for similarity search.
  */
 export async function queryCollection(
-  collection: InMemoryCollection,
+  collection: VectorCollection,
   params: {
     queryEmbedding: number[];
     nResults: number;
   }
-): Promise<{
-  ids: string[][];
-  documents: (string | null)[][];
-  distances: number[][];
-}> {
-  const docs = Array.from(collection.documents.values());
+): Promise<VectorSearchResult> {
+  // Fetch all embeddings for this collection
+  const records = await prisma.vectorEmbedding.findMany({
+    where: { collectionName: collection.name },
+    select: { id: true, content: true, embedding: true },
+  });
 
-  if (docs.length === 0) {
+  if (records.length === 0) {
     return { ids: [[]], documents: [[]], distances: [[]] };
   }
 
-  // Calculate similarity for all docs
-  const scored = docs.map((doc) => ({
-    doc,
-    similarity: cosineSimilarity(params.queryEmbedding, doc.embedding),
-  }));
+  // Calculate similarity for each record
+  const scored = records.map((record) => {
+    const embedding = JSON.parse(record.embedding) as number[];
+    return {
+      id: record.id,
+      content: record.content,
+      similarity: cosineSimilarity(params.queryEmbedding, embedding),
+    };
+  });
 
   // Sort by similarity descending, take top N
   scored.sort((a, b) => b.similarity - a.similarity);
   const topN = scored.slice(0, params.nResults);
 
   return {
-    ids: [topN.map((s) => s.doc.id)],
-    documents: [topN.map((s) => s.doc.content)],
-    // Return distance (1 - similarity) to match Chroma's distance format
+    ids: [topN.map((s) => s.id)],
+    documents: [topN.map((s) => s.content)],
     distances: [topN.map((s) => 1 - s.similarity)],
   };
 }
@@ -122,12 +132,13 @@ export async function queryCollection(
  * Delete specific documents from a collection by ID prefix.
  */
 export async function deleteFromCollection(
-  collection: InMemoryCollection,
+  collection: VectorCollection,
   idPrefix: string
 ): Promise<void> {
-  for (const key of collection.documents.keys()) {
-    if (key.startsWith(idPrefix)) {
-      collection.documents.delete(key);
-    }
-  }
+  await prisma.vectorEmbedding.deleteMany({
+    where: {
+      collectionName: collection.name,
+      id: { startsWith: idPrefix },
+    },
+  });
 }

@@ -167,8 +167,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    // Save file to uploads/ directory
-    const uploadsDir = join(process.cwd(), "uploads");
+    // Save file to /tmp for serverless environments (Vercel)
+    const uploadsDir = join("/tmp", "uploads");
     await mkdir(uploadsDir, { recursive: true });
 
     const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;

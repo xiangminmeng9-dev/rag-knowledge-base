@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 model Chunk {
@@ -114,4 +114,16 @@ model UserKnowledgeBaseAccess {
   User            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, knowledgeBaseId])
+}
+
+/// Stores vector embeddings for document chunks
+model VectorEmbedding {
+  id              String @id
+  collectionName  String
+  chunkId         String
+  content         String
+  embedding       String  // JSON-encoded float array
+  metadata        String? // JSON-encoded metadata
+
+  @@index([collectionName])
 }
