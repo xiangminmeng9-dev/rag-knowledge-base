@@ -6,6 +6,9 @@ import { prisma } from "@/lib/db/prisma";
 import { processDocument } from "@/lib/rag/document-processor";
 import { FileFormat, DocumentStatus, ChunkStrategy } from "@/types";
 
+// Allow up to 60s for document upload + processing (Vercel Hobby max)
+export const maxDuration = 60;
+
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
@@ -213,15 +216,15 @@ export async function POST(request: Request, { params }: RouteParams) {
       },
     });
 
-    // Trigger processDocument asynchronously (don't await)
-    processDocument(document.id).catch((error) => {
-      console.error(
-        `Background processing failed for document ${document.id}:`,
-        error
-      );
+    // Process document synchronously (Vercel kills background tasks after response)
+    await processDocument(document.id);
+
+    // Fetch updated document status
+    const updatedDoc = await prisma.document.findUnique({
+      where: { id: document.id },
     });
 
-    return NextResponse.json({ data: document }, { status: 202 });
+    return NextResponse.json({ data: updatedDoc ?? document }, { status: 202 });
   } catch (error) {
     console.error("Failed to upload document:", error);
     return NextResponse.json(

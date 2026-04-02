@@ -81,7 +81,7 @@ export async function processDocument(documentId: string): Promise<void> {
       });
     }
 
-    // Step 9: Save Chunk records to SQLite
+    // Step 9: Save Chunk records to database
     const chunkRecords = chunks.map((content, position) => ({
       id: `${documentId}_chunk_${position}`,
       documentId,

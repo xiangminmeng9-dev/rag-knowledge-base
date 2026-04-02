@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db/prisma";
 import { deleteCollection, getOrCreateCollection } from "@/lib/rag/vector-store";
 import { processDocument } from "@/lib/rag/document-processor";
 
+export const maxDuration = 60;
+
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
@@ -87,16 +89,14 @@ export async function POST(_request: Request, { params }: RouteParams) {
     // Process documents asynchronously (fire and forget)
     const documentIds = knowledgeBase.Document.map((doc) => doc.id);
 
-    // Start processing without awaiting - runs in background
-    Promise.all(
-      documentIds.map((docId) =>
-        processDocument(docId).catch((error) => {
-          console.error(`Failed to reprocess document ${docId}:`, error);
-        })
-      )
-    ).catch((error) => {
-      console.error("Reprocessing pipeline error:", error);
-    });
+    // Process documents synchronously (Vercel kills background tasks)
+    for (const docId of documentIds) {
+      try {
+        await processDocument(docId);
+      } catch (error) {
+        console.error(`Failed to reprocess document ${docId}:`, error);
+      }
+    }
 
     return NextResponse.json({
       data: {
