@@ -71,8 +71,18 @@ export async function GET(request: NextRequest) {
       prisma.user.count({ where }),
     ]);
 
+    // Map Prisma field names to frontend-expected names
+    const mappedUsers = users.map((u) => ({
+      ...u,
+      knowledgeBaseAccess: (u.UserKnowledgeBaseAccess ?? []).map((a) => ({
+        knowledgeBaseId: a.knowledgeBaseId,
+        knowledgeBase: a.KnowledgeBase,
+      })),
+      UserKnowledgeBaseAccess: undefined,
+    }));
+
     return NextResponse.json({
-      data: users,
+      data: mappedUsers,
       total,
       page,
       pageSize,
@@ -153,7 +163,16 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return apiSuccess(newUser, 201);
+    const mappedNewUser = {
+      ...newUser,
+      knowledgeBaseAccess: (newUser.UserKnowledgeBaseAccess ?? []).map((a) => ({
+        knowledgeBaseId: a.knowledgeBaseId,
+        knowledgeBase: a.KnowledgeBase,
+      })),
+      UserKnowledgeBaseAccess: undefined,
+    };
+
+    return apiSuccess(mappedNewUser, 201);
   } catch (error) {
     console.error("Failed to create user:", error);
     return apiError("Failed to create user", 500);

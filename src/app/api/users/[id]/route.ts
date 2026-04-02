@@ -138,7 +138,17 @@ export async function PUT(
       });
     });
 
-    return apiSuccess(updatedUser);
+    // Map Prisma field names to frontend-expected names
+    const mappedUser = {
+      ...updatedUser,
+      knowledgeBaseAccess: (updatedUser.UserKnowledgeBaseAccess ?? []).map((a) => ({
+        knowledgeBaseId: a.knowledgeBaseId,
+        knowledgeBase: a.KnowledgeBase,
+      })),
+      UserKnowledgeBaseAccess: undefined,
+    };
+
+    return apiSuccess(mappedUser);
   } catch (error) {
     console.error("Failed to update user:", error);
     return apiError("Failed to update user", 500);
