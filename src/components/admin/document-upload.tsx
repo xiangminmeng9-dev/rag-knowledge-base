@@ -113,7 +113,13 @@ export function DocumentUpload({
       const formData = new FormData();
       // Use encodeURIComponent to safely transmit filenames with non-ASCII chars
       const safeName = "upload" + file.name.substring(file.name.lastIndexOf("."));
-      formData.append("file", file, safeName);
+
+      // Convert File to Blob to bypass Safari bug where fetch throws
+      // "The string did not match the expected pattern" for non-ASCII filenames
+      // even if we provide a safe name in formData.append
+      const fileBlob = new Blob([file], { type: file.type });
+
+      formData.append("file", fileBlob, safeName);
       formData.append("originalName", encodeURIComponent(file.name)); // Pass real name safely encoded
       formData.append("chunkStrategy", chunkConfig.chunkStrategy);
       formData.append("chunkOverlapPercent", String(chunkConfig.chunkOverlapPercent));
