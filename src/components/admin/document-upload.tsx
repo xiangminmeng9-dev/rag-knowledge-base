@@ -145,12 +145,15 @@ export function DocumentUpload({
       if (!res.ok) {
         let errorMsg = "上传失败 (" + res.status + ")";
         try {
-          const data = await res.json();
-          errorMsg = data.error || errorMsg;
-        } catch {
-          // If response is not JSON, use text
           const text = await res.text();
-          if (text.length < 100) errorMsg = text;
+          try {
+            const data = JSON.parse(text);
+            errorMsg = data.error || errorMsg;
+          } catch {
+            if (text && text.length < 200) errorMsg = text;
+          }
+        } catch (e) {
+          // Ignore text reading errors
         }
         throw new Error(errorMsg);
       }
