@@ -143,19 +143,7 @@ export function DocumentUpload({
       clearInterval(progressInterval);
 
       if (!res.ok) {
-        let errorMsg = "上传失败 (" + res.status + ")";
-        try {
-          const text = await res.text();
-          try {
-            const data = JSON.parse(text);
-            errorMsg = data.error || errorMsg;
-          } catch {
-            if (text && text.length < 200) errorMsg = text;
-          }
-        } catch (e) {
-          // Ignore text reading errors
-        }
-        throw new Error(errorMsg);
+        throw new Error("上传失败 (" + res.status + " " + res.statusText + ")");
       }
 
       setUploadingFiles((prev) =>
