@@ -217,7 +217,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
 
     // Process document synchronously (Vercel kills background tasks after response)
-    await processDocument(document.id);
+    // Errors during processing are saved to the document record, not thrown
+    try {
+      await processDocument(document.id);
+    } catch (processError) {
+      console.error(`Document processing failed for ${document.id}:`, processError);
+    }
 
     // Fetch updated document status
     const updatedDoc = await prisma.document.findUnique({
@@ -226,9 +231,10 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     return NextResponse.json({ data: updatedDoc ?? document }, { status: 202 });
   } catch (error) {
-    console.error("Failed to upload document:", error);
+    const message = error instanceof Error ? error.message : "上传文档失败";
+    console.error("Failed to upload document:", message);
     return NextResponse.json(
-      { error: "上传文档失败" },
+      { error: message },
       { status: 500 }
     );
   }
