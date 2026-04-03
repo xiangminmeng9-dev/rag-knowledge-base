@@ -111,16 +111,15 @@ export function DocumentUpload({
 
     try {
       const formData = new FormData();
-      // Use encodeURIComponent to safely transmit filenames with non-ASCII chars
       const safeName = "upload" + file.name.substring(file.name.lastIndexOf("."));
 
-      // Convert File to Blob to bypass Safari bug where fetch throws
-      // "The string did not match the expected pattern" for non-ASCII filenames
-      // even if we provide a safe name in formData.append
-      const fileBlob = new Blob([file], { type: file.type });
+      // 提取纯二进制数据，彻底抹除原始 File 对象的 metadata (如中文文件名)
+      // 这能 100% 避免 Safari/fetch 的 "The string did not match the expected pattern" 报错
+      const buffer = await file.arrayBuffer();
+      const safeFile = new File([buffer], safeName, { type: file.type });
 
-      formData.append("file", fileBlob, safeName);
-      formData.append("originalName", encodeURIComponent(file.name)); // Pass real name safely encoded
+      formData.append("file", safeFile);
+      formData.append("originalName", encodeURIComponent(file.name)); // 安全传输真实文件名
       formData.append("chunkStrategy", chunkConfig.chunkStrategy);
       formData.append("chunkOverlapPercent", String(chunkConfig.chunkOverlapPercent));
       if (chunkConfig.chunkStrategy === "FIXED_SIZE" && chunkConfig.chunkSize) {
