@@ -134,61 +134,35 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    let realFileName: string;
-    let fileSize: number;
-    let mimeType: string;
-    let fileBuffer: Buffer;
-    let chunkStrategyRaw: string | null = null;
-    let chunkOverlapPercentRaw: string | null = null;
-    let chunkSizeRaw: string | null = null;
+    const formData = await request.formData();
+    const file = formData.get("file") as File | null;
 
-    const contentType = request.headers.get("content-type") || "";
-
-    if (contentType.includes("application/json")) {
-      // JSON + Base64 upload (Safari-safe)
-      const body = await request.json();
-      if (!body.fileBase64 || !body.fileName) {
-        return NextResponse.json({ error: "未提供文件" }, { status: 400 });
-      }
-      realFileName = body.fileName;
-      mimeType = body.fileType || "";
-      fileBuffer = Buffer.from(body.fileBase64, "base64");
-      fileSize = fileBuffer.length;
-      chunkStrategyRaw = body.chunkStrategy ?? null;
-      chunkOverlapPercentRaw = body.chunkOverlapPercent != null ? String(body.chunkOverlapPercent) : null;
-      chunkSizeRaw = body.chunkSize != null ? String(body.chunkSize) : null;
-    } else {
-      // FormData upload (standard)
-      const formData = await request.formData();
-      const file = formData.get("file") as File | null;
-      const encodedOriginalName = formData.get("originalName") as string | null;
-      const originalName = encodedOriginalName ? decodeURIComponent(encodedOriginalName) : null;
-
-      if (!file) {
-        return NextResponse.json({ error: "未提供文件" }, { status: 400 });
-      }
-      realFileName = originalName || file.name;
-      fileSize = file.size;
-      mimeType = file.type;
-      const arrayBuffer = await file.arrayBuffer();
-      fileBuffer = Buffer.from(arrayBuffer);
-      chunkStrategyRaw = formData.get("chunkStrategy") as string | null;
-      chunkOverlapPercentRaw = formData.get("chunkOverlapPercent") as string | null;
-      chunkSizeRaw = formData.get("chunkSize") as string | null;
+    if (!file) {
+      return NextResponse.json(
+        { error: "未提供文件" },
+        { status: 400 }
+      );
     }
 
-    if (fileBuffer.length === 0) {
-      return NextResponse.json({ error: "文件为空" }, { status: 400 });
+    // Validate file is not empty
+    if (file.size === 0) {
+      return NextResponse.json(
+        { error: "文件为空" },
+        { status: 400 }
+      );
     }
 
-    if (fileSize > MAX_FILE_SIZE) {
+    // Validate size
+    if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
         { error: "文件大小超过 50MB 限制" },
         { status: 400 }
       );
     }
 
-    const fileFormat = detectFileFormat(realFileName, mimeType);
+    // Detect and validate format
+    const fileFormat = detectFileFormat(file.name, file.type);
+
     if (!fileFormat) {
       return NextResponse.json(
         { error: "不支持的文件格式。接受的格式：PDF、DOCX、TXT、MD" },
@@ -201,13 +175,19 @@ export async function POST(request: Request, { params }: RouteParams) {
     await mkdir(uploadsDir, { recursive: true });
 
     const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-    const safeFileName = realFileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const savedFileName = `${uniqueSuffix}_${safeFileName}`;
     const filePath = join(uploadsDir, savedFileName);
 
-    await writeFile(filePath, fileBuffer);
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    await writeFile(filePath, buffer);
 
-    // Parse chunk configuration
+    // Extract optional chunk configuration from form data
+    const chunkStrategyRaw = formData.get("chunkStrategy") as string | null;
+    const chunkOverlapPercentRaw = formData.get("chunkOverlapPercent") as string | null;
+    const chunkSizeRaw = formData.get("chunkSize") as string | null;
+
     const validStrategies: string[] = Object.values(ChunkStrategy);
     const chunkStrategy =
       chunkStrategyRaw && validStrategies.includes(chunkStrategyRaw)
@@ -225,9 +205,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       data: {
         id: crypto.randomUUID(),
         knowledgeBaseId: id,
-        fileName: realFileName,
+        fileName: file.name,
         fileFormat,
-        fileSize,
+        fileSize: file.size,
         filePath,
         status: "UPLOADING",
         ...(chunkStrategy && { chunkStrategy }),
@@ -237,21 +217,21 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
 
     // Process document synchronously (Vercel kills background tasks after response)
+    // Errors during processing are saved to the document record, not thrown
     try {
       await processDocument(document.id);
     } catch (processError) {
       console.error(`Document processing failed for ${document.id}:`, processError);
     }
 
+    // Fetch updated document status
     const updatedDoc = await prisma.document.findUnique({
       where: { id: document.id },
     });
 
     return NextResponse.json({ data: updatedDoc ?? document }, { status: 202 });
   } catch (error) {
-    const message = error instanceof Error
-      ? `${error.message}${error.stack ? ` | Stack: ${error.stack.split("\n").slice(0, 3).join(" > ")}` : ""}`
-      : "上传文档失败";
+    const message = error instanceof Error ? error.message : "上传文档失败";
     console.error("Failed to upload document:", message);
     return NextResponse.json(
       { error: message },
