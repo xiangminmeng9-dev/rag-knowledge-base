@@ -9,13 +9,6 @@ import { FileFormat, DocumentStatus, ChunkStrategy } from "@/types";
 // Allow up to 60s for document upload + processing (Vercel Hobby max)
 export const maxDuration = 60;
 
-// Remove body parser size limit to allow 50MB uploads
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
@@ -141,39 +134,61 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    const encodedOriginalName = formData.get("originalName") as string | null;
-    const originalName = encodedOriginalName ? decodeURIComponent(encodedOriginalName) : null;
+    let realFileName: string;
+    let fileSize: number;
+    let mimeType: string;
+    let fileBuffer: Buffer;
+    let chunkStrategyRaw: string | null = null;
+    let chunkOverlapPercentRaw: string | null = null;
+    let chunkSizeRaw: string | null = null;
 
-    if (!file) {
-      return NextResponse.json(
-        { error: "未提供文件" },
-        { status: 400 }
-      );
+    const contentType = request.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      // JSON + Base64 upload (Safari-safe)
+      const body = await request.json();
+      if (!body.fileBase64 || !body.fileName) {
+        return NextResponse.json({ error: "未提供文件" }, { status: 400 });
+      }
+      realFileName = body.fileName;
+      mimeType = body.fileType || "";
+      fileBuffer = Buffer.from(body.fileBase64, "base64");
+      fileSize = fileBuffer.length;
+      chunkStrategyRaw = body.chunkStrategy ?? null;
+      chunkOverlapPercentRaw = body.chunkOverlapPercent != null ? String(body.chunkOverlapPercent) : null;
+      chunkSizeRaw = body.chunkSize != null ? String(body.chunkSize) : null;
+    } else {
+      // FormData upload (standard)
+      const formData = await request.formData();
+      const file = formData.get("file") as File | null;
+      const encodedOriginalName = formData.get("originalName") as string | null;
+      const originalName = encodedOriginalName ? decodeURIComponent(encodedOriginalName) : null;
+
+      if (!file) {
+        return NextResponse.json({ error: "未提供文件" }, { status: 400 });
+      }
+      realFileName = originalName || file.name;
+      fileSize = file.size;
+      mimeType = file.type;
+      const arrayBuffer = await file.arrayBuffer();
+      fileBuffer = Buffer.from(arrayBuffer);
+      chunkStrategyRaw = formData.get("chunkStrategy") as string | null;
+      chunkOverlapPercentRaw = formData.get("chunkOverlapPercent") as string | null;
+      chunkSizeRaw = formData.get("chunkSize") as string | null;
     }
 
-    const realFileName = originalName || file.name;
-
-    // Validate file is not empty
-    if (file.size === 0) {
-      return NextResponse.json(
-        { error: "文件为空" },
-        { status: 400 }
-      );
+    if (fileBuffer.length === 0) {
+      return NextResponse.json({ error: "文件为空" }, { status: 400 });
     }
 
-    // Validate size
-    if (file.size > MAX_FILE_SIZE) {
+    if (fileSize > MAX_FILE_SIZE) {
       return NextResponse.json(
         { error: "文件大小超过 50MB 限制" },
         { status: 400 }
       );
     }
 
-    // Detect and validate format
-    const fileFormat = detectFileFormat(realFileName, file.type);
-
+    const fileFormat = detectFileFormat(realFileName, mimeType);
     if (!fileFormat) {
       return NextResponse.json(
         { error: "不支持的文件格式。接受的格式：PDF、DOCX、TXT、MD" },
@@ -190,15 +205,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     const savedFileName = `${uniqueSuffix}_${safeFileName}`;
     const filePath = join(uploadsDir, savedFileName);
 
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    await writeFile(filePath, buffer);
+    await writeFile(filePath, fileBuffer);
 
-    // Extract optional chunk configuration from form data
-    const chunkStrategyRaw = formData.get("chunkStrategy") as string | null;
-    const chunkOverlapPercentRaw = formData.get("chunkOverlapPercent") as string | null;
-    const chunkSizeRaw = formData.get("chunkSize") as string | null;
-
+    // Parse chunk configuration
     const validStrategies: string[] = Object.values(ChunkStrategy);
     const chunkStrategy =
       chunkStrategyRaw && validStrategies.includes(chunkStrategyRaw)
@@ -218,7 +227,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         knowledgeBaseId: id,
         fileName: realFileName,
         fileFormat,
-        fileSize: file.size,
+        fileSize,
         filePath,
         status: "UPLOADING",
         ...(chunkStrategy && { chunkStrategy }),
@@ -228,14 +237,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
 
     // Process document synchronously (Vercel kills background tasks after response)
-    // Errors during processing are saved to the document record, not thrown
     try {
       await processDocument(document.id);
     } catch (processError) {
       console.error(`Document processing failed for ${document.id}:`, processError);
     }
 
-    // Fetch updated document status
     const updatedDoc = await prisma.document.findUnique({
       where: { id: document.id },
     });

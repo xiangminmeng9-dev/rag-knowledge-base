@@ -122,68 +122,59 @@ export function DocumentUpload({
   function uploadFile(file: File) {
     setUploadingFiles((prev) =>
       prev.map((uf) =>
-        uf.file === file ? { ...uf, status: "uploading" as const, progress: 0 } : uf
+        uf.file === file ? { ...uf, status: "uploading" as const, progress: 10 } : uf
       )
     );
 
-    // Use XHR wrapped in a Promise so errors are properly caught
+    // Convert file to Base64 and send as JSON to completely bypass
+    // Safari's FormData bug with non-ASCII filenames
     file.arrayBuffer().then((buffer) => {
-      return new Promise<void>((resolve, reject) => {
-        const ext = getFileExtension(file.name) || ".bin";
-        const safeName = "upload" + ext;
-        const blob = new Blob([buffer], { type: file.type || "application/octet-stream" });
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
 
-        const formData = new FormData();
-        formData.append("file", blob, safeName);
-        formData.append("originalName", encodeURIComponent(file.name));
-        formData.append("chunkStrategy", chunkConfig.chunkStrategy);
-        formData.append("chunkOverlapPercent", String(chunkConfig.chunkOverlapPercent));
-        if (chunkConfig.chunkStrategy === "FIXED_SIZE" && chunkConfig.chunkSize) {
-          formData.append("chunkSize", String(chunkConfig.chunkSize));
-        }
+      setUploadingFiles((prev) =>
+        prev.map((uf) =>
+          uf.file === file ? { ...uf, progress: 30 } : uf
+        )
+      );
 
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", `/api/knowledge-bases/${knowledgeBaseId}/documents`);
-
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const percent = Math.round((e.loaded / e.total) * 100);
-            setUploadingFiles((prev) =>
-              prev.map((uf) =>
-                uf.file === file
-                  ? { ...uf, progress: Math.min(percent, 99) }
-                  : uf
-              )
-            );
-          }
-        };
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            let errorMsg = `上传失败 (${xhr.status})`;
-            try {
-              const data = JSON.parse(xhr.responseText);
-              if (data.error) errorMsg = data.error;
-            } catch {
-              // non-JSON response, use status code
-            }
-            reject(new Error(errorMsg));
-          }
-        };
-
-        xhr.onerror = () => {
-          reject(new Error("网络错误，请检查网络连接"));
-        };
-
-        xhr.ontimeout = () => {
-          reject(new Error("上传超时"));
-        };
-
-        xhr.send(formData);
+      return fetch(`/api/knowledge-bases/${knowledgeBaseId}/documents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          fileBase64: base64,
+          chunkStrategy: chunkConfig.chunkStrategy,
+          chunkOverlapPercent: chunkConfig.chunkOverlapPercent,
+          ...(chunkConfig.chunkStrategy === "FIXED_SIZE" && chunkConfig.chunkSize
+            ? { chunkSize: chunkConfig.chunkSize }
+            : {}),
+        }),
       });
-    }).then(() => {
+    }).then(async (res) => {
+      setUploadingFiles((prev) =>
+        prev.map((uf) =>
+          uf.file === file ? { ...uf, progress: 80 } : uf
+        )
+      );
+
+      if (!res.ok) {
+        let errorMsg = `上传失败 (${res.status})`;
+        try {
+          const data = await res.json();
+          if (data.error) errorMsg = data.error;
+        } catch {
+          // ignore parse errors
+        }
+        throw new Error(errorMsg);
+      }
+
       setFileSuccess(file);
       onUploadComplete();
     }).catch((error) => {
