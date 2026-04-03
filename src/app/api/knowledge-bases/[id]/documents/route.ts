@@ -9,9 +9,6 @@ import { FileFormat, DocumentStatus, ChunkStrategy } from "@/types";
 // Allow up to 60s for document upload + processing (Vercel Hobby max)
 export const maxDuration = 60;
 
-// Force Node.js runtime (not Edge) for Buffer, fs, etc.
-export const runtime = "nodejs";
-
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
