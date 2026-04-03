@@ -128,59 +128,83 @@ export function DocumentUpload({
 
     // Convert file to Base64 and send as JSON to completely bypass
     // Safari's FormData bug with non-ASCII filenames
-    file.arrayBuffer().then((buffer) => {
-      const bytes = new Uint8Array(buffer);
-      let binary = "";
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      const base64 = btoa(binary);
-
-      setUploadingFiles((prev) =>
-        prev.map((uf) =>
-          uf.file === file ? { ...uf, progress: 30 } : uf
-        )
-      );
-
-      return fetch(`/api/knowledge-bases/${knowledgeBaseId}/documents`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileName: file.name,
-          fileType: file.type,
-          fileSize: file.size,
-          fileBase64: base64,
-          chunkStrategy: chunkConfig.chunkStrategy,
-          chunkOverlapPercent: chunkConfig.chunkOverlapPercent,
-          ...(chunkConfig.chunkStrategy === "FIXED_SIZE" && chunkConfig.chunkSize
-            ? { chunkSize: chunkConfig.chunkSize }
-            : {}),
-        }),
-      });
-    }).then(async (res) => {
-      setUploadingFiles((prev) =>
-        prev.map((uf) =>
-          uf.file === file ? { ...uf, progress: 80 } : uf
-        )
-      );
-
-      if (!res.ok) {
-        let errorMsg = `上传失败 (${res.status})`;
+    (async () => {
+      try {
+        // Step 1: Read file
+        let buffer: ArrayBuffer;
         try {
-          const data = await res.json();
-          if (data.error) errorMsg = data.error;
-        } catch {
-          // ignore parse errors
+          buffer = await file.arrayBuffer();
+        } catch (e) {
+          throw new Error("[读取文件失败] " + (e instanceof Error ? e.message : String(e)));
         }
-        throw new Error(errorMsg);
-      }
 
-      setFileSuccess(file);
-      onUploadComplete();
-    }).catch((error) => {
-      const msg = error instanceof Error ? error.message : "上传失败";
-      setFileError(file, msg);
-    });
+        // Step 2: Convert to Base64
+        let base64: string;
+        try {
+          const bytes = new Uint8Array(buffer);
+          const chunks: string[] = [];
+          const chunkSize = 8192;
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, i + chunkSize);
+            chunks.push(String.fromCharCode.apply(null, chunk as unknown as number[]));
+          }
+          base64 = btoa(chunks.join(""));
+        } catch (e) {
+          throw new Error("[Base64转换失败] " + (e instanceof Error ? e.message : String(e)));
+        }
+
+        setUploadingFiles((prev) =>
+          prev.map((uf) =>
+            uf.file === file ? { ...uf, progress: 30 } : uf
+          )
+        );
+
+        // Step 3: Send request
+        let res: Response;
+        try {
+          res = await fetch(`/api/knowledge-bases/${knowledgeBaseId}/documents`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileName: file.name,
+              fileType: file.type,
+              fileSize: file.size,
+              fileBase64: base64,
+              chunkStrategy: chunkConfig.chunkStrategy,
+              chunkOverlapPercent: chunkConfig.chunkOverlapPercent,
+              ...(chunkConfig.chunkStrategy === "FIXED_SIZE" && chunkConfig.chunkSize
+                ? { chunkSize: chunkConfig.chunkSize }
+                : {}),
+            }),
+          });
+        } catch (e) {
+          throw new Error("[网络请求失败] " + (e instanceof Error ? e.message : String(e)));
+        }
+
+        setUploadingFiles((prev) =>
+          prev.map((uf) =>
+            uf.file === file ? { ...uf, progress: 80 } : uf
+          )
+        );
+
+        if (!res.ok) {
+          let errorMsg = `上传失败 (${res.status})`;
+          try {
+            const data = await res.json();
+            if (data.error) errorMsg = data.error;
+          } catch {
+            // ignore
+          }
+          throw new Error(errorMsg);
+        }
+
+        setFileSuccess(file);
+        onUploadComplete();
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "上传失败";
+        setFileError(file, msg);
+      }
+    })();
   }
 
   function handleDragOver(e: React.DragEvent) {
