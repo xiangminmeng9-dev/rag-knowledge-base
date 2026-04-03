@@ -244,7 +244,7 @@ export function DocumentUpload({
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+          accept=".pdf,.docx,.txt,.md"
           onChange={handleFileInputChange}
           className="hidden"
         />
