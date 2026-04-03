@@ -143,7 +143,8 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
-    const originalName = formData.get("originalName") as string | null;
+    const encodedOriginalName = formData.get("originalName") as string | null;
+    const originalName = encodedOriginalName ? decodeURIComponent(encodedOriginalName) : null;
 
     if (!file) {
       return NextResponse.json(

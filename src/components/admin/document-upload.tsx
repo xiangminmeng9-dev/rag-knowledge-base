@@ -111,10 +111,10 @@ export function DocumentUpload({
 
     try {
       const formData = new FormData();
-      // Use a safe filename for FormData to avoid browser string pattern errors with non-ASCII chars
-      const safeName = file.name.replace(/[^\x00-\x7F]/g, "_");
+      // Use encodeURIComponent to safely transmit filenames with non-ASCII chars
+      const safeName = "upload" + file.name.substring(file.name.lastIndexOf("."));
       formData.append("file", file, safeName);
-      formData.append("originalName", file.name); // Pass real name separately
+      formData.append("originalName", encodeURIComponent(file.name)); // Pass real name safely encoded
       formData.append("chunkStrategy", chunkConfig.chunkStrategy);
       formData.append("chunkOverlapPercent", String(chunkConfig.chunkOverlapPercent));
       if (chunkConfig.chunkStrategy === "FIXED_SIZE" && chunkConfig.chunkSize) {
