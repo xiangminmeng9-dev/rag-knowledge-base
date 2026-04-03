@@ -1,19 +1,16 @@
 import { readFile } from "fs/promises";
-import { resolve } from "path";
 import { PDFParse } from "pdf-parse";
 
 export async function parsePdf(filePath: string): Promise<string> {
   const buffer = await readFile(filePath);
 
+  // In Node.js/Vercel environments, we don't necessarily need the worker.
+  // pdfjs-dist can fall back to running on the main thread.
+  // Setting worker to an empty string disables the worker.
   try {
-    // Try to find the worker in node_modules
-    const workerPath = resolve(
-      process.cwd(),
-      "node_modules/pdf-parse/dist/pdf-parse/cjs/pdf.worker.mjs"
-    );
-    PDFParse.setWorker(workerPath);
+    PDFParse.setWorker("");
   } catch {
-    // Worker path may not exist in serverless, continue without it
+    // Ignore if setWorker fails
   }
 
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
