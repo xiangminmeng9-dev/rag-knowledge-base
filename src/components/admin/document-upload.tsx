@@ -102,75 +102,89 @@ export function DocumentUpload({
     }
   }, [knowledgeBaseId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function uploadFile(file: File) {
+  function uploadFile(file: File) {
     setUploadingFiles((prev) =>
       prev.map((uf) =>
-        uf.file === file ? { ...uf, status: "uploading" as const, progress: 10 } : uf
+        uf.file === file ? { ...uf, status: "uploading", progress: 0 } : uf
       )
     );
 
-    try {
-      const formData = new FormData();
-      const safeName = "upload" + file.name.substring(file.name.lastIndexOf("."));
+    // Run async logic inside without making the whole function async to avoid React state race conditions easily
+    (async () => {
+      try {
+        const formData = new FormData();
+        const ext = file.name.substring(file.name.lastIndexOf("."));
+        const safeName = "upload" + ext;
 
-      // 提取纯二进制数据，彻底抹除原始 File 对象的 metadata (如中文文件名)
-      // 这能 100% 避免 Safari/fetch 的 "The string did not match the expected pattern" 报错
-      const buffer = await file.arrayBuffer();
-      const safeFile = new File([buffer], safeName, { type: file.type });
+        // Extract pure ArrayBuffer to strip any metadata, and use Blob instead of File
+        const buffer = await file.arrayBuffer();
+        const blob = new Blob([buffer], { type: file.type });
 
-      formData.append("file", safeFile);
-      formData.append("originalName", encodeURIComponent(file.name)); // 安全传输真实文件名
-      formData.append("chunkStrategy", chunkConfig.chunkStrategy);
-      formData.append("chunkOverlapPercent", String(chunkConfig.chunkOverlapPercent));
-      if (chunkConfig.chunkStrategy === "FIXED_SIZE" && chunkConfig.chunkSize) {
-        formData.append("chunkSize", String(chunkConfig.chunkSize));
-      }
+        formData.append("file", blob, safeName);
+        formData.append("originalName", encodeURIComponent(file.name));
+        formData.append("chunkStrategy", chunkConfig.chunkStrategy);
+        formData.append("chunkOverlapPercent", String(chunkConfig.chunkOverlapPercent));
+        if (chunkConfig.chunkStrategy === "FIXED_SIZE" && chunkConfig.chunkSize) {
+          formData.append("chunkSize", String(chunkConfig.chunkSize));
+        }
 
-      // Simulate progress (since fetch doesn't support upload progress natively)
-      const progressInterval = setInterval(() => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `/api/knowledge-bases/${knowledgeBaseId}/documents`);
+
+        // Real upload progress
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            setUploadingFiles((prev) =>
+              prev.map((uf) =>
+                uf.file === file
+                  ? { ...uf, progress: Math.min(percent, 99) }
+                  : uf
+              )
+            );
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            setUploadingFiles((prev) =>
+              prev.map((uf) =>
+                uf.file === file
+                  ? { ...uf, status: "success", progress: 100 }
+                  : uf
+              )
+            );
+            onUploadComplete();
+          } else {
+            let errorMsg = `上传失败 (${xhr.status} ${xhr.statusText})`;
+            try {
+              const data = JSON.parse(xhr.responseText);
+              errorMsg = data.error || errorMsg;
+            } catch (e) {
+              if (xhr.responseText && xhr.responseText.length < 200) {
+                errorMsg = xhr.responseText;
+              }
+            }
+            throw new Error(errorMsg);
+          }
+        };
+
+        xhr.onerror = () => {
+          throw new Error("网络请求失败 (XHR Error)");
+        };
+
+        xhr.send(formData);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "上传失败";
         setUploadingFiles((prev) =>
           prev.map((uf) =>
-            uf.file === file && uf.status === "uploading"
-              ? { ...uf, progress: Math.min(uf.progress + 15, 90) }
+            uf.file === file
+              ? { ...uf, status: "error", error: errorMessage, progress: 0 }
               : uf
           )
         );
-      }, 300);
-
-      const res = await fetch(
-        `/api/knowledge-bases/${knowledgeBaseId}/documents`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
-
-      clearInterval(progressInterval);
-
-      if (!res.ok) {
-        throw new Error("上传失败 (" + res.status + " " + res.statusText + ")");
       }
-
-      setUploadingFiles((prev) =>
-        prev.map((uf) =>
-          uf.file === file
-            ? { ...uf, status: "success" as const, progress: 100 }
-            : uf
-        )
-      );
-
-      onUploadComplete();
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "上传失败";
-      setUploadingFiles((prev) =>
-        prev.map((uf) =>
-          uf.file === file
-            ? { ...uf, status: "error" as const, error: errorMessage, progress: 0 }
-            : uf
-        )
-      );
-    }
+    })();
   }
 
   function handleDragOver(e: React.DragEvent) {
