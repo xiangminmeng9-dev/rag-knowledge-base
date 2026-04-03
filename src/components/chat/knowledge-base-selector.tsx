@@ -95,12 +95,7 @@ export function KnowledgeBaseSelector({
         }}
       >
         <SelectTrigger className="w-full h-10">
-          <SelectValue placeholder="请选择知识库">
-            {(value: string) => {
-              const kb = knowledgeBases.find((k) => k.id === value);
-              return kb ? kb.name : value;
-            }}
-          </SelectValue>
+          <SelectValue placeholder="请选择知识库" />
         </SelectTrigger>
         <SelectContent>
           {knowledgeBases.map((kb) => (

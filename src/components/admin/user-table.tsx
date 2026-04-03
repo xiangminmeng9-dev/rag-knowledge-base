@@ -158,17 +158,7 @@ export default function UserTable({ onEdit }: UserTableProps) {
             }}
           >
             <SelectTrigger>
-              <SelectValue placeholder="全部角色">
-                {(value: string) => {
-                  const labels: Record<string, string> = {
-                    all: "全部角色",
-                    SUPER_ADMIN: "超级管理员",
-                    KB_ADMIN: "知识库管理员",
-                    QA_USER: "普通用户",
-                  };
-                  return labels[value] ?? value;
-                }}
-              </SelectValue>
+              <SelectValue placeholder="全部角色" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部角色</SelectItem>
@@ -188,16 +178,7 @@ export default function UserTable({ onEdit }: UserTableProps) {
             }}
           >
             <SelectTrigger>
-              <SelectValue placeholder="全部状态">
-                {(value: string) => {
-                  const labels: Record<string, string> = {
-                    all: "全部状态",
-                    ACTIVE: "启用",
-                    DISABLED: "禁用",
-                  };
-                  return labels[value] ?? value;
-                }}
-              </SelectValue>
+              <SelectValue placeholder="全部状态" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部状态</SelectItem>
