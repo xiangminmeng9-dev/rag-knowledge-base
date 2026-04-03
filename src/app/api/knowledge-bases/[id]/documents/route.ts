@@ -9,6 +9,9 @@ import { FileFormat, DocumentStatus, ChunkStrategy } from "@/types";
 // Allow up to 60s for document upload + processing (Vercel Hobby max)
 export const maxDuration = 60;
 
+// Force Node.js runtime (not Edge) for Buffer, fs, etc.
+export const runtime = "nodejs";
+
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
@@ -249,7 +252,9 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     return NextResponse.json({ data: updatedDoc ?? document }, { status: 202 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "上传文档失败";
+    const message = error instanceof Error
+      ? `${error.message}${error.stack ? ` | Stack: ${error.stack.split("\n").slice(0, 3).join(" > ")}` : ""}`
+      : "上传文档失败";
     console.error("Failed to upload document:", message);
     return NextResponse.json(
       { error: message },
