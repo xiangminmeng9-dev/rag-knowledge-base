@@ -48,6 +48,9 @@ export async function processDocument(documentId: string): Promise<void> {
     );
 
     // Step 5: Get the KnowledgeBase's EmbeddingModel config
+    if (!document.KnowledgeBase.EmbeddingModel) {
+      throw new Error("知识库未配置嵌入模型，请先在知识库设置中选择嵌入模型");
+    }
     const embeddingModelId = document.KnowledgeBase.EmbeddingModel.id;
 
     // Step 6: Create embeddings instance using the KB's configured model

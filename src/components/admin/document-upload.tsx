@@ -6,12 +6,6 @@ import { UploadIcon, FileIcon, XIcon, CheckCircleIcon, AlertCircleIcon } from "l
 import { ChunkConfig, type ChunkConfigValues } from "@/components/admin/chunk-config";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-const ACCEPTED_TYPES = [
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "text/plain",
-  "text/markdown",
-];
 const ACCEPTED_EXTENSIONS = [".pdf", ".docx", ".txt", ".md"];
 
 interface UploadingFile {
@@ -34,10 +28,14 @@ function formatFileSize(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
+function getFileExtension(name: string): string {
+  const dotIndex = name.lastIndexOf(".");
+  if (dotIndex === -1) return "";
+  return name.substring(dotIndex).toLowerCase();
+}
+
 function isAcceptedFile(file: File): boolean {
-  if (ACCEPTED_TYPES.includes(file.type)) return true;
-  const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-  return ACCEPTED_EXTENSIONS.includes(ext);
+  return ACCEPTED_EXTENSIONS.includes(getFileExtension(file.name));
 }
 
 export function DocumentUpload({
@@ -52,6 +50,26 @@ export function DocumentUpload({
     chunkSize: 500,
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const setFileError = useCallback((file: File, errorMessage: string) => {
+    setUploadingFiles((prev) =>
+      prev.map((uf) =>
+        uf.file === file
+          ? { ...uf, status: "error" as const, error: errorMessage, progress: 0 }
+          : uf
+      )
+    );
+  }, []);
+
+  const setFileSuccess = useCallback((file: File) => {
+    setUploadingFiles((prev) =>
+      prev.map((uf) =>
+        uf.file === file
+          ? { ...uf, status: "success" as const, progress: 100 }
+          : uf
+      )
+    );
+  }, []);
 
   const validateAndAddFiles = useCallback((files: FileList | File[]) => {
     const fileArray = Array.from(files);
@@ -94,7 +112,6 @@ export function DocumentUpload({
 
     setUploadingFiles((prev) => [...prev, ...newUploadingFiles]);
 
-    // Upload valid files
     for (const uf of newUploadingFiles) {
       if (uf.status === "pending") {
         uploadFile(uf.file);
@@ -105,21 +122,18 @@ export function DocumentUpload({
   function uploadFile(file: File) {
     setUploadingFiles((prev) =>
       prev.map((uf) =>
-        uf.file === file ? { ...uf, status: "uploading", progress: 0 } : uf
+        uf.file === file ? { ...uf, status: "uploading" as const, progress: 0 } : uf
       )
     );
 
-    // Run async logic inside without making the whole function async to avoid React state race conditions easily
-    (async () => {
-      try {
-        const formData = new FormData();
-        const ext = file.name.substring(file.name.lastIndexOf("."));
+    // Use XHR wrapped in a Promise so errors are properly caught
+    file.arrayBuffer().then((buffer) => {
+      return new Promise<void>((resolve, reject) => {
+        const ext = getFileExtension(file.name) || ".bin";
         const safeName = "upload" + ext;
+        const blob = new Blob([buffer], { type: file.type || "application/octet-stream" });
 
-        // Extract pure ArrayBuffer to strip any metadata, and use Blob instead of File
-        const buffer = await file.arrayBuffer();
-        const blob = new Blob([buffer], { type: file.type });
-
+        const formData = new FormData();
         formData.append("file", blob, safeName);
         formData.append("originalName", encodeURIComponent(file.name));
         formData.append("chunkStrategy", chunkConfig.chunkStrategy);
@@ -131,7 +145,6 @@ export function DocumentUpload({
         const xhr = new XMLHttpRequest();
         xhr.open("POST", `/api/knowledge-bases/${knowledgeBaseId}/documents`);
 
-        // Real upload progress
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
             const percent = Math.round((e.loaded / e.total) * 100);
@@ -147,44 +160,36 @@ export function DocumentUpload({
 
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
-            setUploadingFiles((prev) =>
-              prev.map((uf) =>
-                uf.file === file
-                  ? { ...uf, status: "success", progress: 100 }
-                  : uf
-              )
-            );
-            onUploadComplete();
+            resolve();
           } else {
-            let errorMsg = `上传失败 (${xhr.status} ${xhr.statusText})`;
+            let errorMsg = `上传失败 (${xhr.status})`;
             try {
               const data = JSON.parse(xhr.responseText);
-              errorMsg = data.error || errorMsg;
-            } catch (e) {
-              if (xhr.responseText && xhr.responseText.length < 200) {
-                errorMsg = xhr.responseText;
-              }
+              if (data.error) errorMsg = data.error;
+            } catch {
+              // non-JSON response, use status code
             }
-            throw new Error(errorMsg);
+            reject(new Error(errorMsg));
           }
         };
 
         xhr.onerror = () => {
-          throw new Error("网络请求失败 (XHR Error)");
+          reject(new Error("网络错误，请检查网络连接"));
+        };
+
+        xhr.ontimeout = () => {
+          reject(new Error("上传超时"));
         };
 
         xhr.send(formData);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "上传失败";
-        setUploadingFiles((prev) =>
-          prev.map((uf) =>
-            uf.file === file
-              ? { ...uf, status: "error", error: errorMessage, progress: 0 }
-              : uf
-          )
-        );
-      }
-    })();
+      });
+    }).then(() => {
+      setFileSuccess(file);
+      onUploadComplete();
+    }).catch((error) => {
+      const msg = error instanceof Error ? error.message : "上传失败";
+      setFileError(file, msg);
+    });
   }
 
   function handleDragOver(e: React.DragEvent) {
