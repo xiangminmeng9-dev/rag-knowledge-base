@@ -111,7 +111,10 @@ export function DocumentUpload({
 
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      // Use a safe filename for FormData to avoid browser string pattern errors with non-ASCII chars
+      const safeName = file.name.replace(/[^\x00-\x7F]/g, "_");
+      formData.append("file", file, safeName);
+      formData.append("originalName", file.name); // Pass real name separately
       formData.append("chunkStrategy", chunkConfig.chunkStrategy);
       formData.append("chunkOverlapPercent", String(chunkConfig.chunkOverlapPercent));
       if (chunkConfig.chunkStrategy === "FIXED_SIZE" && chunkConfig.chunkSize) {
@@ -140,8 +143,16 @@ export function DocumentUpload({
       clearInterval(progressInterval);
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error ?? "上传失败");
+        let errorMsg = "上传失败 (" + res.status + ")";
+        try {
+          const data = await res.json();
+          errorMsg = data.error || errorMsg;
+        } catch {
+          // If response is not JSON, use text
+          const text = await res.text();
+          if (text.length < 100) errorMsg = text;
+        }
+        throw new Error(errorMsg);
       }
 
       setUploadingFiles((prev) =>

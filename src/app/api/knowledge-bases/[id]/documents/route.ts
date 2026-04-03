@@ -9,6 +9,13 @@ import { FileFormat, DocumentStatus, ChunkStrategy } from "@/types";
 // Allow up to 60s for document upload + processing (Vercel Hobby max)
 export const maxDuration = 60;
 
+// Remove body parser size limit to allow 50MB uploads
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
@@ -136,6 +143,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
+    const originalName = formData.get("originalName") as string | null;
 
     if (!file) {
       return NextResponse.json(
@@ -143,6 +151,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         { status: 400 }
       );
     }
+
+    const realFileName = originalName || file.name;
 
     // Validate file is not empty
     if (file.size === 0) {
@@ -161,7 +171,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     // Detect and validate format
-    const fileFormat = detectFileFormat(file.name, file.type);
+    const fileFormat = detectFileFormat(realFileName, file.type);
 
     if (!fileFormat) {
       return NextResponse.json(
@@ -175,7 +185,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     await mkdir(uploadsDir, { recursive: true });
 
     const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-    const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const safeFileName = realFileName.replace(/[^a-zA-Z0-9._-]/g, "_");
     const savedFileName = `${uniqueSuffix}_${safeFileName}`;
     const filePath = join(uploadsDir, savedFileName);
 
@@ -205,7 +215,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       data: {
         id: crypto.randomUUID(),
         knowledgeBaseId: id,
-        fileName: file.name,
+        fileName: realFileName,
         fileFormat,
         fileSize: file.size,
         filePath,
