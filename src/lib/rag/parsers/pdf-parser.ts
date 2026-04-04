@@ -7,6 +7,9 @@ if (typeof globalThis !== "undefined") {
       a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
     } as any;
   }
+  if (!globalThis.Path2D) {
+    globalThis.Path2D = class Path2D {} as any;
+  }
 }
 
 export async function parsePdf(filePath: string): Promise<string> {
