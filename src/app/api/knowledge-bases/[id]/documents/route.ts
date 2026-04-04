@@ -236,12 +236,17 @@ export async function POST(request: Request, { params }: RouteParams) {
       },
     });
 
-    // Process document synchronously (Vercel kills background tasks after response)
+    // Process document in background using Next.js after()
+    // Alternatively, if after() isn't available, we can just not await it
+    // But since Vercel kills unawaited promises, we can use a Vercel-specific trick or simple async IIFE
     try {
       const processor = await import("@/lib/rag/document-processor");
-      await processor.processDocument(document.id);
+      // Fire and forget
+      processor.processDocument(document.id).catch(err => {
+        console.error(`Background document processing failed for ${document.id}:`, err);
+      });
     } catch (processError) {
-      console.error(`Document processing failed for ${document.id}:`, processError);
+      console.error(`Failed to import document processor for ${document.id}:`, processError);
     }
 
     const updatedDoc = await prisma.document.findUnique({
