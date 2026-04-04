@@ -3,6 +3,7 @@ import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
+import { waitUntil } from "@vercel/functions";
 
 import { FileFormat, DocumentStatus, ChunkStrategy } from "@/types";
 
@@ -236,17 +237,18 @@ export async function POST(request: Request, { params }: RouteParams) {
       },
     });
 
-    // Process document in background using Next.js after()
-    // Alternatively, if after() isn't available, we can just not await it
-    // But since Vercel kills unawaited promises, we can use a Vercel-specific trick or simple async IIFE
+    // Process document in background using Vercel's waitUntil()
     try {
-      const processor = await import("@/lib/rag/document-processor");
-      // Fire and forget
-      processor.processDocument(document.id).catch(err => {
-        console.error(`Background document processing failed for ${document.id}:`, err);
+      const processorPromise = import("@/lib/rag/document-processor").then(mod => {
+        return mod.processDocument(document.id).catch(err => {
+          console.error(`Background document processing failed for ${document.id}:`, err);
+        });
+      }).catch(err => {
+        console.error(`Failed to import document processor for ${document.id}:`, err);
       });
+      waitUntil(processorPromise);
     } catch (processError) {
-      console.error(`Failed to import document processor for ${document.id}:`, processError);
+      console.error(`Failed to trigger waitUntil for ${document.id}:`, processError);
     }
 
     const updatedDoc = await prisma.document.findUnique({
