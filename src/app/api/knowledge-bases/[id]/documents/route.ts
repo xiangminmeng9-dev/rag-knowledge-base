@@ -237,18 +237,19 @@ export async function POST(request: Request, { params }: RouteParams) {
       },
     });
 
-    // Process document in background using Vercel's waitUntil()
+    // Wait for processDocument synchronously to prevent Vercel from killing the task
+    // Vercel Hobby tier will kill background tasks after the response is sent.
     try {
-      const processorPromise = import("@/lib/rag/document-processor").then(mod => {
-        return mod.processDocument(document.id).catch(err => {
-          console.error(`Background document processing failed for ${document.id}:`, err);
-        });
-      }).catch(err => {
-        console.error(`Failed to import document processor for ${document.id}:`, err);
-      });
-      waitUntil(processorPromise);
+      const processor = await import("@/lib/rag/document-processor");
+      await processor.processDocument(document.id);
     } catch (processError) {
-      console.error(`Failed to trigger waitUntil for ${document.id}:`, processError);
+      console.error(`Document processing failed for ${document.id}:`, processError);
+      try {
+        await prisma.document.update({
+          where: { id: document.id },
+          data: { status: "FAILED", errorMessage: String(processError) }
+        });
+      } catch {}
     }
 
     const updatedDoc = await prisma.document.findUnique({
