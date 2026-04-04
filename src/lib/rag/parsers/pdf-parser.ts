@@ -18,14 +18,8 @@ export async function parsePdf(filePath: string): Promise<string> {
   // Dynamic import so globals are polyfilled first
   const { PDFParse } = await import("pdf-parse");
 
-  // In Node.js/Vercel environments, we don't necessarily need the worker.
-  // pdfjs-dist can fall back to running on the main thread.
-  try {
-    PDFParse.setWorker("");
-  } catch {
-    // Ignore if setWorker fails
-  }
-
+  // Create parser and extract text
+  // We do NOT set workerSrc to "", we let it use the default worker bundled in pdf-parse
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
   const result = await parser.getText();
   await parser.destroy();
