@@ -234,7 +234,12 @@ export function KnowledgeBaseFormDialog({
                 disabled={isSubmitting}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="请选择 Embedding 模型" />
+                  <SelectValue placeholder="请选择 Embedding 模型">
+                    {embeddingModelId ? (() => {
+                      const model = embeddingModels.find(m => m.id === embeddingModelId);
+                      return model ? `${model.name} (${model.provider} - ${model.dimensions}d)` : embeddingModelId;
+                    })() : "请选择 Embedding 模型"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {embeddingModels.map((model) => (

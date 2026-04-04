@@ -43,7 +43,9 @@ export function ChunkConfig({ value, onChange }: ChunkConfigProps) {
           }
         >
           <SelectTrigger>
-            <SelectValue placeholder="请选择切分策略" />
+            <SelectValue placeholder="请选择切分策略">
+              {strategies.find((s) => s.value === value.chunkStrategy)?.label || value.chunkStrategy}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {strategies.map((s) => (

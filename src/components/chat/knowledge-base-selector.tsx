@@ -95,7 +95,11 @@ export function KnowledgeBaseSelector({
         }}
       >
         <SelectTrigger className="w-full h-10">
-          <SelectValue placeholder="请选择知识库" />
+          <SelectValue placeholder="请选择知识库">
+            {selectedId
+              ? knowledgeBases.find((kb) => kb.id === selectedId)?.name || selectedId
+              : "请选择知识库"}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {knowledgeBases.map((kb) => (

@@ -158,7 +158,14 @@ export default function UserTable({ onEdit }: UserTableProps) {
             }}
           >
             <SelectTrigger>
-              <SelectValue placeholder="全部角色" />
+              <SelectValue placeholder="全部角色">
+                {{
+                  all: "全部角色",
+                  SUPER_ADMIN: "超级管理员",
+                  KB_ADMIN: "知识库管理员",
+                  QA_USER: "普通用户",
+                }[roleFilter || "all"]}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部角色</SelectItem>
@@ -178,7 +185,13 @@ export default function UserTable({ onEdit }: UserTableProps) {
             }}
           >
             <SelectTrigger>
-              <SelectValue placeholder="全部状态" />
+              <SelectValue placeholder="全部状态">
+                {{
+                  all: "全部状态",
+                  ACTIVE: "启用",
+                  DISABLED: "禁用",
+                }[statusFilter || "all"]}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部状态</SelectItem>
