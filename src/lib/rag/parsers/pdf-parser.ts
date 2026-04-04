@@ -1,22 +1,9 @@
-// Uses pdf2json to avoid Vercel Serverless fake worker issues entirely
+// Use LangChain's PDFLoader which has built-in shims for Vercel/Node environments
+// and correctly sets useWorkerFetch: false and isEvalSupported: false to avoid
+// the "Setting up fake worker failed" error.
 export async function parsePdf(filePath: string): Promise<string> {
-  // Dynamic import of pdf2json to avoid initializing it on non-PDF endpoints
-  const pdf2json = await import("pdf2json");
-  const PDFParser = pdf2json.default || pdf2json;
-
-  return new Promise((resolve, reject) => {
-    try {
-      // 1 means return raw text
-      const pdfParser = new PDFParser(null, 1);
-
-      pdfParser.on("pdfParser_dataError", (errData: any) => reject(errData.parserError));
-      pdfParser.on("pdfParser_dataReady", () => {
-        resolve(pdfParser.getRawTextContent());
-      });
-
-      pdfParser.loadPDF(filePath);
-    } catch (e) {
-      reject(e);
-    }
-  });
+  const { PDFLoader } = await import("@langchain/community/document_loaders/fs/pdf");
+  const loader = new PDFLoader(filePath, { splitPages: false });
+  const docs = await loader.load();
+  return docs.map(doc => doc.pageContent).join("\n\n");
 }
